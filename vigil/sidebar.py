@@ -44,9 +44,18 @@ class Sidebar(QFrame):
         foot.setContentsMargins(11, 0, 0, 0)
         foot.setSpacing(2)
         foot.addWidget(label("Security Desk", "sidefoot"))
-        foot.addWidget(label("ESP8266 · Connected", "sidefoot"))
+        self._device = label("ESP8266 · Checking…", "sidefoot")
+        foot.addWidget(self._device)
         lay.addLayout(foot)
 
     def select(self, index: int) -> None:
         self._buttons[index].setChecked(True)
         self.page_selected.emit(index)
+
+    def set_device_status(self, state: str) -> None:
+        """state: 'connected' | 'disconnected' | 'no_address' (from DeviceMonitor)."""
+        text, color = {"connected": ("ESP8266 · Connected", "#a9d9a0"),
+                       "disconnected": ("ESP8266 · Not connected", "#f2a396")}.get(
+            state, ("ESP8266 · No IP set", "#a99ba4"))
+        self._device.setText(text)
+        self._device.setStyleSheet(f"color: {color};")

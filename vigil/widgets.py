@@ -1,6 +1,7 @@
 """Reusable VIGIL UI components."""
 from PySide6.QtCore import QRectF, Qt, Signal
-from PySide6.QtGui import QColor, QFontMetrics, QLinearGradient, QPainter, QPen
+from PySide6.QtGui import (QColor, QFontMetrics, QImage, QLinearGradient, QPainter,
+                           QPainterPath, QPen)
 from PySide6.QtWidgets import (QFrame, QHBoxLayout, QLabel, QPushButton, QSizePolicy,
                                QVBoxLayout, QWidget)
 
@@ -175,18 +176,31 @@ class Table(QWidget):
         self._rows.append(row)
         self._lay.insertWidget(self._lay.count() - 1, row)
 
+    def clear(self) -> None:
+        """Remove all data rows (header is kept)."""
+        for row in self._rows:
+            self._lay.removeWidget(row)
+            row.hide()
+            row.deleteLater()
+        self._rows.clear()
+
     def select(self, index: int) -> None:
         for i, r in enumerate(self._rows):
             set_props(r, selected=(i == index))
 
 
 class VideoView(QWidget):
-    """Painted placeholder for a video frame: gradient, fake detection boxes, caption chip."""
+    """Video tile: gradient placeholder, optional live frame, detection boxes, caption chip.
+
+    Boxes are (x, y, w, h, kind) as fractions of the *displayed frame* (or of the whole
+    tile when no frame is set), so they stay aligned when the frame is letterboxed.
+    """
 
     def __init__(self, caption: str = "", boxes=(), min_height: int = 140):
         super().__init__()
         self._caption = caption
         self._boxes = list(boxes)
+        self._frame: QImage | None = None
         self.setMinimumHeight(min_height)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
@@ -197,6 +211,24 @@ class VideoView(QWidget):
     def set_boxes(self, boxes) -> None:
         self._boxes = list(boxes)
         self.update()
+
+    def set_frame(self, image: QImage) -> None:
+        self._frame = image
+        self.update()
+
+    def clear_frame(self) -> None:
+        if self._frame is not None:
+            self._frame = None
+            self.update()
+
+    def _frame_rect(self, r: QRectF) -> QRectF:
+        """Largest aspect-correct rect for the frame, centred inside r."""
+        if self._frame is None or self._frame.isNull():
+            return r
+        iw, ih = self._frame.width(), self._frame.height()
+        scale = min(r.width() / iw, r.height() / ih)
+        w, h = iw * scale, ih * scale
+        return QRectF(r.x() + (r.width() - w) / 2, r.y() + (r.height() - h) / 2, w, h)
 
     def paintEvent(self, _):
         p = QPainter(self)
@@ -209,10 +241,22 @@ class VideoView(QWidget):
         p.setBrush(g)
         p.drawRoundedRect(r, 10, 10)
         p.setBrush(Qt.NoBrush)
+
+        area = r
+        if self._frame is not None and not self._frame.isNull():
+            area = self._frame_rect(r)
+            p.save()
+            clip = QPainterPath()
+            clip.addRoundedRect(r, 10, 10)
+            p.setClipPath(clip)
+            p.setRenderHint(QPainter.SmoothPixmapTransform, True)
+            p.drawImage(area, self._frame)
+            p.restore()
+
         for x, y, w, h, kind in self._boxes:
             p.setPen(QPen(QColor(Color.ALERT if kind == "alert" else Color.NORMAL), 2))
-            p.drawRoundedRect(QRectF(r.x() + x * r.width(), r.y() + y * r.height(),
-                                     w * r.width(), h * r.height()), 2, 2)
+            p.drawRoundedRect(QRectF(area.x() + x * area.width(), area.y() + y * area.height(),
+                                     w * area.width(), h * area.height()), 2, 2)
         if self._caption:
             font = theme.mono_font(12)
             p.setFont(font)

@@ -1,0 +1,1 @@
+"""Qt-free core logic (video capture now; detection, tracking, alerts later)."""
